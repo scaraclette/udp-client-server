@@ -43,7 +43,7 @@ int main() {
     }
 
     // Send 10,000 message
-    for (int i = 0; i < 1000000; i++) {
+    for (int i = 0; i < 100000000; i++) {
         std::string current_number = std::to_string(i);
         std::cout << "sending: " << current_number << std::endl;
         numbytes = sendto(sockfd, current_number.c_str(), sizeof current_number.c_str(), 0, p->ai_addr, p->ai_addrlen);
