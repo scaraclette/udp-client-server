@@ -1,4 +1,4 @@
-#include<iostream>
+#include <iostream>
 #include <sys/types.h>    // socket, bind
 #include <sys/socket.h>   // socket, bind, listen, inet_ntoa
 #include <netinet/in.h>   // htonl, htons, inet_ntoa
@@ -9,62 +9,85 @@
 #include <netinet/tcp.h>  // SO_REUSEADDR
 #include <sys/uio.h>      // writev
 
+#define MYPORT "4950"
 
-using namespace std;
+// get sockaddr, iPv4 or IPv6
+void *get_in_addr(struct sockaddr *sa) {
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+    }
 
-const unsigned int BUF_SIZE = 65535;
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
 
 int main () {
-    // Create the socket
-    int server_port = 12345;
-
-    sockaddr_in acceptSock;
-    bzero((char*) &acceptSock, sizeof(acceptSock));  // zero out the data structure
-    acceptSock.sin_family = AF_INET;   // using IP
-    acceptSock.sin_addr.s_addr = htonl(INADDR_ANY); // listen on any address this computer has
-    acceptSock.sin_port = htons(server_port);  // set the port to listen on
-
-    // int serverSd = socket(AF_INET, SOCK_STREAM, 0); // creates a new socket for IP using TCP
-    int serverSd = socket(AF_INET, SOCK_DGRAM, 0);
-
-    const int on = 1;
-
-    setsockopt(serverSd, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(int));  // this lets us reuse the socket without waiting for hte OS to recycle it
-
-    // Bind the socket
-
-    bind(serverSd, (sockaddr*) &acceptSock, sizeof(acceptSock));  // bind the socket using the parameters we set earlier
-    
-    // Listen on the socket
-    int n = 5;
-    // listen(serverSd, n);  // listen on the socket and allow up to n connections to wait.
-
-    // Accept the connection as a new socket
-
-    sockaddr_in newsock;   // place to store parameters for the new connection
-    socklen_t newsockSize = sizeof(newsock);
-    
+    int sockfd;
+    struct addrinfo hints, *servinfo, *p;
+    int rv;
     int numbytes;
-    for (int i = 0; i < 10000; i++) {
-        std::string number = to_string(i);
-        numbytes = sendto(serverSd, number.c_str(), number.length(), 0, (const sockaddr *) &acceptSock, newsockSize);
-        if (numbytes == -1) {
-            perror("sendto");
+    struct sockaddr_storage their_addr;
+    char buf[BUFSIZ];
+    socklen_t addr_len;
+    char s[INET6_ADDRSTRLEN];
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_INET6; // set to AF_INET to use IPV4
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags = AI_PASSIVE; // use my IP
+
+    if ((rv = getaddrinfo(NULL, MYPORT, &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        return 1;
+    }
+
+    // loop through all the results and bind to the first we can
+    for (p = servinfo; p != NULL; p = p->ai_next) {
+        if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+            perror("listener: socket");
+            continue;
         }
+        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(sockfd);
+            perror("listener: bind");
+            continue;
+        }
+
+        break;
+    }
+
+    if (p == NULL) {
+        fprintf(stderr, "listener: failed to bind socket\n");
+        return 2;
+    }
+
+    freeaddrinfo(servinfo);
+
+    printf("listener: waiting to recvfrom...\n");
+
+    int current_count = 0;
+    while (1) {
+        addr_len = sizeof their_addr;
+        if ((numbytes = recvfrom(sockfd, buf, BUFSIZ-1, 0, (struct sockaddr *)&their_addr, &addr_len)) == -1) {
+            perror("recvfrom");
+            exit(1);
+        }
+        buf[numbytes] = '\0';
+
+        std::string current_num_string = buf;
+        int current_num_count = stoi(current_num_string);
+        if (current_count != current_num_count) {
+            std::cout << "SKIPPED NUMBER:" << current_count << std::endl;
+            current_count = current_num_count;
+        } else {
+            std::cout << current_count << std::endl;
+            current_count++;
+        }
+
+        // std::cout << buf << std::endl;
+        memset(buf, 0, BUFSIZ-1);
     }
     
-    // while (1) {
-	//     int newSd = accept(serverSd, (sockaddr *)&newsock, &newsockSize);  // grabs the new connection and assigns it a temporary socket
-    // // Read data from the socket
 
-    //         char buf[BUF_SIZE];
-	//     int bytesRead = read(newSd, buf, BUF_SIZE);
-	//     cout << "read " << bytesRead << " bytes" << endl;
-	//     cout << "Received: " << buf << endl;
-    // // Close the socket
-    
-	//     close(newSd);
-    // }
+    close(sockfd);
     return 0;
-
 }
